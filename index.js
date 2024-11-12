@@ -70,10 +70,48 @@ client.on("ready", async (c) => {
     client.user.setActivity({ type: ActivityType.Custom, name: "Pigga Bot", state: "@ me with any message" });
 });
 
+// Store reminders. Key: User ID to remind, Value: Array of { userId: senderId, message: reminderMessage }
+const reminders = new Map();
+
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
     // Handle reminders or other custom commands here...
+    // Handle reminders
+    if (message.content.startsWith('!remind')) {
+        const args = message.content.slice(7).trim().split(/ +/);
+        if (args.length < 2) {
+            message.channel.send("Usage: !remind @user message");
+            return;
+        }
+
+        const mentionedUser = message.mentions.users.first();
+        if (!mentionedUser) {
+            message.channel.send("Please mention a user to remind.");
+            return;
+        }
+
+        const reminderMessage = args.slice(1).join(' ');
+        const reminder = { userId: message.author.id, message: reminderMessage };
+
+        if (!reminders.has(mentionedUser.id)) {
+            reminders.set(mentionedUser.id, []);
+        }
+        reminders.get(mentionedUser.id).push(reminder);
+        message.channel.send(`Reminder set for ${mentionedUser}.`);
+        return;
+    }
+
+    // Check for pending reminders
+    if (reminders.has(message.author.id)) {
+        const userReminders = reminders.get(message.author.id);
+        //Process all pending reminders
+        for (const reminder of userReminders) {
+            const sender = await client.users.fetch(reminder.userId);
+            message.channel.send(`${message.author}, reminder from ${sender}: ${reminder.message}`);
+        }
+        reminders.delete(message.author.id); // Delete all reminders after delivery
+    }
 
     // Check if the bot was mentioned
     if (message.content.includes(`<@${client.user.id}>`)) {

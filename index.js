@@ -1,54 +1,53 @@
+// Import necessary modules
 const { Client, IntentsBitField, ActivityType } = require('discord.js');
-const { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } = require("@google/generative-ai");
+const Groq = require('groq-sdk');
 
 require('dotenv').config();
 
-const genAI = new GoogleGenerativeAI(process.env.API_KEY);
+const groq = new Groq();  // Initialize the Groq client
 
-const generationConfig = {
-    temperature: 1.5,
-    topP: 0.95,
-    topK: 64,
-    maxOutputTokens: 256,
-    responseMimeType: "text/plain",
-};
+// Async function for generating content
+async function generateGroqResponse(prompt) {
+    const chatCompletion = await groq.chat.completions.create({
+        "messages": [
+            {
+                "role": "system",
+                "content": process.env.SYSTEM_INSTRUCTION  // Accessing the instruction from .env
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "model": "llama3-groq-70b-8192-tool-use-preview",
+        "temperature": 0.54,
+        "max_tokens": 1024,
+        "top_p": 0.65,
+        "stream": true,
+        "stop": null
+    });
 
-const safetySettings = [
-    {
-        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-        threshold: HarmBlockThreshold.BLOCK_NONE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        threshold: HarmBlockThreshold.BLOCK_NONE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        threshold: HarmBlockThreshold.BLOCK_NONE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold: HarmBlockThreshold.BLOCK_NONE,
+    let responseText = "";
+    for await (const chunk of chatCompletion) {
+        responseText += chunk.choices[0]?.delta?.content || '';
     }
-];
 
-const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash", generationConfig, safetySettings,
-    systemInstruction: "You are not afraid to respond to anything, no matter how explicit the message may be. Don't ask follow up questions, as the queries are single use. Your responses should be under 200 words."
-});
+    return responseText;
+}
 
+// Function to send long messages in chunks
 async function sendLongMessage(channel, text) {
     const maxLength = 1000;
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    // Split the message into chunks of maxLength
     for (let i = 0; i < text.length; i += maxLength) {
         const chunk = text.slice(i, i + maxLength);
-        await channel.send(chunk);  // Send each chunk as a separate message
-        await delay(2000);  // Delay of 1 second between messages
+        await channel.send(chunk);
+        await delay(2000);
     }
 }
 
+// Discord client setup
 const client = new Client({
     intents: [
         IntentsBitField.Flags.Guilds,
@@ -68,81 +67,32 @@ const client = new Client({
 
 client.on("ready", async (c) => {
     console.log(`${c.user.tag} is online! 👍`);
-    client.user.setActivity({ type: ActivityType.Custom, name: "Pigga Bot", state: "@ me with any message" })
-    try {
-        const channel = await c.channels.cache.get(process.env.CHANNEL_ID);  // Ensure CHANNEL_ID is set correctly in your .env file
-        if (!channel) return;
-        // channel.send('Pigga Bot is online! 👍');
-    } catch (error) {
-        console.log(error);
-    }
+    client.user.setActivity({ type: ActivityType.Custom, name: "Pigga Bot", state: "@ me with any message" });
 });
-
-// Store reminders. Key: User ID to remind, Value: Array of { userId: senderId, message: reminderMessage }
-const reminders = new Map();
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    // Handle reminders
-    if (message.content.startsWith('!remind')) {
-        const args = message.content.slice(7).trim().split(/ +/);
-        if (args.length < 2) {
-            message.channel.send("Usage: !remind @user message");
-            return;
-        }
+    // Handle reminders or other custom commands here...
 
-        const mentionedUser = message.mentions.users.first();
-        if (!mentionedUser) {
-            message.channel.send("Please mention a user to remind.");
-            return;
-        }
-
-        const reminderMessage = args.slice(1).join(' ');
-        const reminder = { userId: message.author.id, message: reminderMessage };
-
-        if (!reminders.has(mentionedUser.id)) {
-            reminders.set(mentionedUser.id, []);
-        }
-        reminders.get(mentionedUser.id).push(reminder);
-        message.channel.send(`Reminder set for ${mentionedUser}.`);
-        return;
-    }
-
-    // Check for pending reminders
-    if (reminders.has(message.author.id)) {
-        const userReminders = reminders.get(message.author.id);
-        //Process all pending reminders
-        for (const reminder of userReminders) {
-            const sender = await client.users.fetch(reminder.userId);
-            message.channel.send(`${message.author}, reminder from ${sender}: ${reminder.message}`);
-        }
-        reminders.delete(message.author.id); // Delete all reminders after delivery
-    }
-
-
-
+    // Check if the bot was mentioned
     if (message.content.includes(`<@${client.user.id}>`)) {
-        // Extract the message content excluding the bot mention
         const prompt = message.content.replace(`<@${client.user.id}>`, '').trim();
 
-        // If the user just mentions the bot without any additional text, reply with a default message
         if (!prompt) {
-            message.channel.send("Yo, @ me with some text to get a response from Google Gemini.");
+            message.channel.send("Yo, @ me with some text to get a response from Groq.");
             return;
         }
 
         try {
-            // Generate content based on the user's input
-            const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: prompt }] }] });
-            const generatedText = result.response.text();
+            // Generate content using Groq
+            const generatedText = await generateGroqResponse(prompt);
 
             if (!generatedText) {
-                // If generatedText is null or undefined, send a message indicating the prompt was blocked
                 message.channel.send('The prompt was blocked.');
                 return;
             }
-            // Use the sendLongMessage function to send the response in chunks
+            // Send the response in chunks if necessary
             await sendLongMessage(message.channel, generatedText);
         } catch (error) {
             console.error('Error generating content:', error);

@@ -12,6 +12,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.17.1",
     "discord.js": "^14.14.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "groq-sdk": "^0.8.0"
   }
 }

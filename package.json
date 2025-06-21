@@ -10,7 +10,8 @@
   "author": "BluePigman",
   "license": "ISC",
   "dependencies": {
-    "@google/generative-ai": "^0.17.1",
+    "@google/genai": "^0.6.1",
+    "axios": "^1.8.4",
     "discord.js": "^14.14.1",
     "dotenv": "^16.4.5",
     "groq-sdk": "^0.8.0"
